@@ -199,18 +199,19 @@ def render_app():
 
     cleaned_html = clean_html(raw_html, options) if raw_html else ""
     html_placeholder = "<p>Cleaned HTML will appear here as soon as you paste or type.</p>"
+    display_html = cleaned_html or html_placeholder
 
     with right:
         st.subheader("HTML")
         st.caption("Live HTML output that mirrors the Word box.")
         st.text_area(
             "Clean HTML output",
-            value=cleaned_html or html_placeholder,
+            value=display_html,
             height=350,
-            disabled=True,
+            placeholder=display_html,
             help="This view refreshes automatically; copy it directly into your project.",
         )
-        st.code(cleaned_html or html_placeholder, language="html")
+        st.code(display_html, language="html")
         st.download_button(
             "Download cleaned HTML",
             data=cleaned_html,
