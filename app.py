@@ -176,25 +176,41 @@ def render_app():
 
     default_example = """<p class=\"MsoNormal\" style=\"margin-bottom:0in;margin-bottom:.0001pt;\">\n<span style=\"font-size:12.0pt;line-height:107%;\">Paste Word content here. <o:p></o:p></span></p>"""
 
+    st.markdown(
+        "Paste rich text (including Word formatting) into the left box. The cleaned HTML "
+        "updates instantly in the right box as you type or toggle cleaning options."
+    )
+
     left, right = st.columns(2)
 
     with left:
-        st.subheader("Paste Word HTML")
+        st.subheader("Word content")
         raw_html = st.text_area(
-            "Word HTML input",
+            "Word or Google Docs input",
             value=default_example,
             height=350,
-            placeholder="Paste HTML from Word...",
+            placeholder="Paste formatted content or the HTML exported from Word...",
+            help="Edit the pasted content here. Each change is reflected in the HTML panel.",
         )
         st.info(
-            "The cleaner keeps your text while removing styles, classes, IDs, comments, and other Office-specific markup."
+            "Use the checkboxes in the sidebar to control how aggressively the cleaner removes "
+            "inline styles, classes, IDs, comments, and other Office-specific markup."
         )
 
     cleaned_html = clean_html(raw_html, options) if raw_html else ""
+    html_placeholder = "<p>Cleaned HTML will appear here as soon as you paste or type.</p>"
 
     with right:
-        st.subheader("Clean HTML")
-        st.code(cleaned_html, language="html")
+        st.subheader("HTML")
+        st.caption("Live HTML output that mirrors the Word box.")
+        st.text_area(
+            "Clean HTML output",
+            value=cleaned_html or html_placeholder,
+            height=350,
+            disabled=True,
+            help="This view refreshes automatically; copy it directly into your project.",
+        )
+        st.code(cleaned_html or html_placeholder, language="html")
         st.download_button(
             "Download cleaned HTML",
             data=cleaned_html,
@@ -206,7 +222,9 @@ def render_app():
     st.divider()
     st.subheader("Preview")
     st.caption("Rendered version of the cleaned HTML.")
-    st.components.v1.html(cleaned_html or "<p>Cleaned HTML preview will appear here.</p>", height=300)
+    st.components.v1.html(
+        cleaned_html or "<p>Cleaned HTML preview will appear here.</p>", height=300
+    )
 
 
 if __name__ == "__main__":
