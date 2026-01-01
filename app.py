@@ -28,13 +28,12 @@ class CleanOptions:
     remove_office_tags: bool = True
     remove_empty_tags: bool = True
 
-    # Moodle-oriented behavior
     infer_headings_from_font_size: bool = True
     keep_only_text_align_style: bool = True
     keep_only_moodle_safe_attributes: bool = True
 
-    # Output formatting
     pretty_print_html: bool = True
+    show_compact_copy: bool = True
 
 
 VOID_TAGS = {
@@ -46,7 +45,6 @@ OFFICE_TAGS = {
     "o:p", "v:shapetype", "v:shape", "v:imagedata", "xml", "style",
 }
 
-# Small attribute allowlist that works well with Moodle editors.
 GLOBAL_ALLOWED_ATTRS = set()
 ALLOWED_ATTRS_BY_TAG = {
     "a": {"href", "title", "target", "rel"},
@@ -56,7 +54,6 @@ ALLOWED_ATTRS_BY_TAG = {
     "table": {"summary"},
 }
 
-# Tag allowlist (we unwrap unknown tags rather than deleting content).
 ALLOWED_TAGS = {
     "p", "br",
     "h1", "h2", "h3", "h4", "h5", "h6",
@@ -80,14 +77,10 @@ def _wrap_fragment(raw_html: str) -> BeautifulSoup:
 
 def _root(soup: BeautifulSoup) -> Tag:
     found = soup.find("div", {"id": "__root__"})
-    return found if isinstance(found, Tag) else soup  # fallback
+    return found if isinstance(found, Tag) else soup
 
 
 def _parse_style(style_value: str) -> Dict[str, str]:
-    """
-    Parse a CSS style string into a dict.
-    Example: "font-size: 18pt; text-align: center" -> {"font-size": "18pt", "text-align": "center"}
-    """
     styles: Dict[str, str] = {}
     if not style_value:
         return styles
@@ -104,31 +97,19 @@ def _parse_style(style_value: str) -> Dict[str, str]:
 
 
 def _font_size_to_pt(value: str) -> Optional[float]:
-    """
-    Convert a CSS font-size value to points (pt) when possible.
-    Supports px and pt.
-    """
     if not value:
         return None
-
     m = re.match(r"^\s*([0-9]*\.?[0-9]+)\s*(px|pt)\s*$", value.strip().lower())
     if not m:
         return None
-
     num = float(m.group(1))
     unit = m.group(2)
     if unit == "pt":
         return num
-    # px to pt approximation: 1px ~ 0.75pt
-    return num * 0.75
+    return num * 0.75  # px -> pt approx
 
 
 def _candidate_font_size_pt(tag: Tag) -> Optional[float]:
-    """
-    Try to find an effective font-size for a block, checking:
-    - tag's own style
-    - first child span style (common after paste)
-    """
     style = _parse_style(tag.get("style", ""))
     fs = _font_size_to_pt(style.get("font-size", ""))
     if fs is not None:
@@ -145,12 +126,6 @@ def _candidate_font_size_pt(tag: Tag) -> Optional[float]:
 
 
 def _infer_headings_from_styles(root: Tag) -> None:
-    """
-    Convert paragraphs/divs that look like headings (via larger font-size)
-    into semantic heading tags before stripping styling.
-    """
-    # Thresholds in pt. Tune for your campus norms.
-    # Many pasted headings end up around 18–24pt.
     thresholds: Tuple[Tuple[float, str], ...] = (
         (22.0, "h2"),
         (18.0, "h3"),
@@ -158,7 +133,6 @@ def _infer_headings_from_styles(root: Tag) -> None:
     )
 
     for tag in list(root.find_all(["p", "div"])):
-        # Avoid converting list items
         if tag.find_parent("li") is not None:
             continue
 
@@ -166,7 +140,6 @@ def _infer_headings_from_styles(root: Tag) -> None:
         if not text:
             continue
 
-        # Simple guardrail: don't convert long paragraphs
         if len(text) > 120:
             continue
 
@@ -211,10 +184,6 @@ def _strip_disallowed_attributes(root: Tag) -> None:
 
 
 def _keep_only_text_align_style(root: Tag) -> None:
-    """
-    Keep only style="text-align: ..." to preserve centered headings, etc.
-    Drops font-size, colors, margins, etc.
-    """
     for tag in root.find_all(True):
         if "style" not in tag.attrs:
             continue
@@ -251,7 +220,6 @@ def _tag_is_effectively_empty(tag: Tag) -> bool:
     if tag.get_text(strip=True):
         return False
 
-    # Treat tags that contain only <br> and whitespace as empty
     for child in tag.contents:
         if isinstance(child, NavigableString):
             if str(child).strip():
@@ -276,18 +244,27 @@ def _remove_empty_tags(root: Tag) -> None:
 
 
 def _pretty_html(fragment_html: str) -> str:
-    """
-    Pretty-print the fragment for readability.
-    """
     soup = BeautifulSoup(fragment_html or "", "html5lib")
     body = soup.body
     content = body.decode_contents() if body else soup.decode()
 
     pretty = BeautifulSoup(content, "html.parser").prettify()
-
-    # Reduce excessive blank lines from prettify()
     pretty = re.sub(r"\n\s*\n+", "\n\n", pretty).strip()
     return pretty
+
+
+def _compact_html(fragment_html: str) -> str:
+    """
+    Compact copy version:
+    - Keeps line breaks between block elements
+    - Removes indentation and repeated spaces
+    - Avoids turning everything into one long line
+    """
+    html = fragment_html.strip()
+    html = re.sub(r"[ \t]+\n", "\n", html)
+    html = re.sub(r"\n[ \t]+", "\n", html)
+    html = re.sub(r"[ \t]{2,}", " ", html)
+    return html.strip()
 
 
 def clean_html(raw_html: str, options: CleanOptions) -> str:
@@ -306,7 +283,6 @@ def clean_html(raw_html: str, options: CleanOptions) -> str:
     if options.infer_headings_from_font_size:
         _infer_headings_from_styles(root)
 
-    # Now that we have semantic headings, we can safely reduce styles.
     if options.keep_only_text_align_style:
         _keep_only_text_align_style(root)
     else:
@@ -332,6 +308,7 @@ def clean_html(raw_html: str, options: CleanOptions) -> str:
         _remove_empty_tags(root)
 
     cleaned = root.decode_contents().strip()
+
     if options.pretty_print_html:
         cleaned = _pretty_html(cleaned)
 
@@ -351,24 +328,35 @@ def render_sidebar() -> CleanOptions:
         infer_headings_from_font_size=st.sidebar.checkbox(
             "Convert large font paragraphs to headings",
             value=True,
-            help="Helps preserve headings when paste uses font-size instead of <h2>/<h3> tags.",
         ),
         keep_only_text_align_style=st.sidebar.checkbox(
             "Keep only text-align styling",
             value=True,
-            help="Preserves centered or right-aligned text while stripping most Word styling.",
         ),
         keep_only_moodle_safe_attributes=st.sidebar.checkbox(
             "Keep only Moodle-safe attributes",
             value=True,
-            help="Keeps a small allowlist like href and src.",
         ),
         pretty_print_html=st.sidebar.checkbox(
             "Pretty print HTML output",
             value=True,
-            help="Indents and line-breaks HTML so it is easy to review and edit.",
+        ),
+        show_compact_copy=st.sidebar.checkbox(
+            "Show compact copy version",
+            value=True,
         ),
     )
+
+
+def _get_tinymce_api_key() -> str:
+    """
+    Avoid StreamlitSecretNotFoundError when no secrets.toml exists.
+    Returns "" if no key is available.
+    """
+    try:
+        return str(st.secrets.get("TINY_API_KEY", ""))
+    except Exception:
+        return ""
 
 
 def render_app() -> None:
@@ -382,18 +370,14 @@ def render_app() -> None:
     with left:
         st.subheader("Rich text input")
 
-        # If you have a TinyMCE API key, put it in .streamlit/secrets.toml as:
-        # TINY_API_KEY="your_key"
-        api_key = st.secrets.get("TINY_API_KEY", "")
+        api_key = _get_tinymce_api_key()
 
         raw_html = tiny_editor(
             apiKey=api_key,
             height=520,
             initialValue="",
             menubar=False,
-            plugins=[
-                "lists", "link", "table", "paste", "code", "autolink",
-            ],
+            plugins=["lists", "link", "table", "paste", "code", "autolink"],
             toolbar=(
                 "undo redo | blocks | bold italic underline | "
                 "alignleft aligncenter alignright alignjustify | "
@@ -402,9 +386,15 @@ def render_app() -> None:
         )
 
         st.info(
-            "In Moodle, paste the cleaned HTML using the editor’s HTML/source view. "
-            "Atto and TinyMCE may sanitize markup depending on site filters, so test with a sample page."
+            "Moodle may sanitize HTML differently in Atto vs TinyMCE depending on filters. "
+            "After copying, check the page in Moodle and confirm headings and lists remain correct."
         )
+
+        if not api_key:
+            st.caption(
+                "TinyMCE API key not found. If you want to add one, create .streamlit/secrets.toml "
+                "in your project folder and add: TINY_API_KEY=\"your_key\""
+            )
 
     cleaned_html = clean_html(raw_html or "", options) if raw_html else ""
     output_html = cleaned_html or "<p>Cleaned HTML will appear here after you paste content.</p>"
@@ -413,13 +403,18 @@ def render_app() -> None:
         st.subheader("Clean HTML for Moodle")
 
         st.text_area(
-            "Copy from here",
+            "Readable HTML (review/edit here)",
             value=output_html,
-            height=260,
-            help="This preserves indentation and line breaks for easier review and editing.",
+            height=240,
         )
-
         st.code(output_html, language="html")
+
+        if options.show_compact_copy and cleaned_html:
+            st.text_area(
+                "Compact copy version (less whitespace)",
+                value=_compact_html(output_html),
+                height=140,
+            )
 
         st.download_button(
             "Download cleaned HTML",
